@@ -1,4 +1,4 @@
-import { CommentStatus } from "../../../generated/prisma/enums";
+import { CommentStatus, PostStatus } from "../../../generated/prisma/enums";
 import { prisma } from "../../lib/prisma"
 import { ICreatePostPayload, IUpdatePostPayload } from "./post.interface"
 
@@ -30,42 +30,87 @@ const getAllPosts = async () => {
 }
 const getPostById = async (postId: string) => {
 
-  await prisma.post.update(
-    {
-      where: { id: postId },
-      data: {
-        views: {
-          increment: 1
+  const transactionResult = await prisma.$transaction(
+    async (tx) => {
+      await tx.post.update(
+        {
+          where: {id:postId},
+          data:{
+            views: {
+              increment:1,
+            }
+          }
+        },
+      );
+
+      const post = await tx.post.findUniqueOrThrow(
+        {
+          where:{id:postId},
+          include:{
+            author: {
+              omit:{
+                password:true,
+              }
+            },
+            comments: {
+              where: {
+                status: CommentStatus.APPROVED,
+              },
+              orderBy:{
+                createdAt: 'desc'
+              }
+            },
+            _count:{
+              select:{
+                comments: true,
+              }
+            }
+          }
         }
-      },
+      )
+
+      return post;
     }
   )
 
-  const post = await prisma.post.findUniqueOrThrow({
-    where: { id: postId },
-    include:{
-      author: {
-        omit: {
-          password: true,
-        }
-      },
-      comments: {
-        where: {status: CommentStatus.APPROVED},
-        orderBy : {
-          createdAt: 'desc',
-        }
-      },
-      _count: {
-        select: {
-          comments: true,
-        }
-      }
-    }
-  })
+  return transactionResult;
+
+  // await prisma.post.update(
+  //   {
+  //     where: { id: postId },
+  //     data: {
+  //       views: {
+  //         increment: 1
+  //       }
+  //     },
+  //   }
+  // )
+
+  // const post = await prisma.post.findUniqueOrThrow({
+  //   where: { id: postId },
+  //   include:{
+  //     author: {
+  //       omit: {
+  //         password: true,
+  //       }
+  //     },
+  //     comments: {
+  //       where: {status: CommentStatus.APPROVED},
+  //       orderBy : {
+  //         createdAt: 'desc',
+  //       }
+  //     },
+  //     _count: {
+  //       select: {
+  //         comments: true,
+  //       }
+  //     }
+  //   }
+  // })
 
 
 
-  return post
+  // return post
 
 }
 const updatePost = async (payload: IUpdatePostPayload, postId: string, authorId: string, isAdmin: boolean) => {
@@ -113,7 +158,57 @@ const deletePost = async ({ postId, authorId, isAdmin }: { postId: string; autho
   await prisma.post.delete({ where: { id: postId } })
 
 }
-const getPostsStates = () => { }
+
+const getPostsStates = async () => {
+  const transactionResult = await prisma.$transaction(
+    async (tx) => {
+      const totalPost = await tx.post.count();
+      const publistPosts = await tx.post.count({
+        where: {
+          status: PostStatus.PUBLISHED,
+        }
+      });
+      
+      const draftPosts = await tx.post.count({
+        where: {
+          status: PostStatus.DRAFT,
+        }
+      });
+
+      const archivePosts = await tx.post.count({
+        where: {
+          status: PostStatus.ARCHIVE,
+        }
+      });
+
+      const comments = await tx.comment.count();
+
+      const totalApprovedComment = await tx.comment.count({
+        where: {
+          status: CommentStatus.APPROVED
+        }
+      })
+
+        const totalRejectComment = await tx.comment.count({
+        where: {
+          status: CommentStatus.REJECT
+        }
+      })
+
+      const totalPostViewsAggegate =  await tx.post.aggregate({
+        _sum: {views:true}
+      })
+
+      const totalPostViews = totalPostViewsAggegate._sum.views;
+      return {totalPost,publistPosts,draftPosts,totalPostViews, archivePosts, comments, totalApprovedComment, totalRejectComment}
+
+    }
+  )
+
+  return transactionResult;
+}
+
+
 const getMyPosts = async (authorId: string) => {
   const posts = await prisma.post.findMany(
     {
