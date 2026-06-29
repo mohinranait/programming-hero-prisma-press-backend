@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { catchAsync } from "../../utils/catchAsync";
 import { postService } from "./post.service";
 import HttpStatus from "http-status";
-import { sendResposne } from "../../utils/sendResponse";
+import { sendResponse as sendResposne } from "../../utils/sendResponse";
 
 
 const createPost = catchAsync(async (req: Request, res: Response) => {

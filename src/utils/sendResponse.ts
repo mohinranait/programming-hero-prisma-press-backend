@@ -14,7 +14,7 @@ interface TResposne<T> {
   meta?: TMeta
 }
 
-export const sendResposne = <T>(res: Response, data:TResposne<T>) => {
+export const sendResponse = <T>(res: Response, data:TResposne<T>) => {
    return res.status(data.statusCode).json({
     success: data.success ,
     message: data.message,
