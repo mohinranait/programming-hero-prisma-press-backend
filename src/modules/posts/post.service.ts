@@ -1,6 +1,7 @@
 import { CommentStatus, PostStatus } from "../../../generated/prisma/enums";
+import { PostWhereInput } from "../../../generated/prisma/models";
 import { prisma } from "../../lib/prisma"
-import { ICreatePostPayload, IUpdatePostPayload } from "./post.interface"
+import { ICreatePostPayload, IPostQuery, IUpdatePostPayload } from "./post.interface"
 
 
 const createPost = async (paylaod: ICreatePostPayload, userId: string) => {
@@ -13,24 +14,165 @@ const createPost = async (paylaod: ICreatePostPayload, userId: string) => {
 
   return result;
 }
-const getAllPosts = async () => {
+
+
+
+const getAllPosts = async (query:IPostQuery) => {
+
+  const limit = query.limit ? Number(query.limit) : 10;
+  const page = query.page ?  Number(query.page) : 1;
+  const skip = (page - 1) * limit;
+  const sortBy = query.sortBy ? query.sortBy : 'createdAt';
+  const sortOrder = query.sortOrder ? query.sortOrder : "desc"
+
+  const andConditions: PostWhereInput[] = []
+
+  if(query.searchTerm){
+    andConditions.push({
+      OR:[
+        {
+          title: {
+            contains: query.searchTerm,
+            mode: 'insensitive'
+          },
+        },
+        {
+          content: {
+            contains: query.searchTerm,
+            mode: 'insensitive'
+          }
+        }
+      ]
+    })
+  }
+
+  if(query.title){
+    andConditions.push({
+      title: query.title,
+    })
+  }
+  if(query.content){
+    andConditions.push({
+      content: query.content,
+    })
+  }
+
+  if(query.authorId){
+    andConditions.push({
+      authorId: query.authorId  
+    })
+  }
+
+
+  if(query.isFeatured){
+    andConditions.push({
+      isFeatured: Boolean(query.isFeatured)
+    })
+  }
+
+  if(query.tags){
+    andConditions.push({
+      tags: {
+        hasSome: query.tags as string[]
+      }
+    })
+  }
+
+  if(query.status){
+    andConditions.push({
+      status: query.status
+    })
+  }
+
   const posts = await prisma.post.findMany(
     {
-      where:{
-        AND:[
-          {
-            title: "",
-          },
-           {
-            content: "",
-          },
-          {
-            tags: {
-              has:'ts'
-            }
-          }
-        ]
+
+      // Searching with AND Operator
+      // where:{
+      //   AND:[
+      //     {
+      //       title: "",
+      //     },
+      //      {
+      //       content: "",
+      //     },
+      //     {
+      //       tags: {
+      //         has:'ts'
+      //       }
+      //     }
+      //   ]
+      // },
+
+      // Searching / partial search with OR operator
+      // where: {
+      //   OR: [
+      //     {
+      //       title: {
+      //         contains: "Ronaldo",
+      //         mode: 'insensitive'
+      //       }
+      //     },
+      //     {
+      //       content: {
+      //         contains: "search text",
+      //         mode: 'insensitive'
+      //       }
+      //     }
+      //   ]
+      // },
+
+
+
+      // combining search and filtering
+      // where:{
+      //   AND:[
+      //     {
+      //       OR: [
+      //         {
+      //           title: {
+      //             contains: "ron",
+      //             mode: 'insensitive'
+      //           }
+      //         },
+      //          {
+      //           title: {
+      //             contains: "ron",
+      //             mode: 'insensitive'
+      //           }
+      //         }
+      //       ]
+      //     },
+      //     {
+      //       tags: {
+      //         has: 'tag1'
+      //       }
+      //     }
+         
+      //   ]
+      // },
+
+      // without and conditions 
+      // where: {
+      //   AND: [
+      //     query.searchTerm ? {
+      //       OR:[
+      //         {title: {contains: query.searchTerm, mode: 'insensitive'}},
+      //         {content: {contains: query.searchTerm, mode: 'insensitive'}},
+      //       ]
+      //     } : {},
+      //     query.title ? { title: query.title  } : {},
+      //     query.content ? { title: query.content  } : {},
+      //   ]
+      // },
+
+
+      // with and condistions
+      where: {
+        AND: andConditions,
       },
+
+
       include: {
         author: {
           omit: {
@@ -38,7 +180,12 @@ const getAllPosts = async () => {
           }
         },
         comments: true,
-      }
+      },
+      take:limit,
+      skip: skip,
+      orderBy:{
+        [sortBy]: [sortOrder],
+      } 
     }
   );
   return posts
@@ -49,10 +196,10 @@ const getPostById = async (postId: string) => {
     async (tx) => {
       await tx.post.update(
         {
-          where: {id:postId},
-          data:{
+          where: { id: postId },
+          data: {
             views: {
-              increment:1,
+              increment: 1,
             }
           }
         },
@@ -60,23 +207,23 @@ const getPostById = async (postId: string) => {
 
       const post = await tx.post.findUniqueOrThrow(
         {
-          where:{id:postId},
-          include:{
+          where: { id: postId },
+          include: {
             author: {
-              omit:{
-                password:true,
+              omit: {
+                password: true,
               }
             },
             comments: {
               where: {
                 status: CommentStatus.APPROVED,
               },
-              orderBy:{
+              orderBy: {
                 createdAt: 'desc'
               }
             },
-            _count:{
-              select:{
+            _count: {
+              select: {
                 comments: true,
               }
             }
@@ -183,7 +330,7 @@ const getPostsStates = async () => {
           status: PostStatus.PUBLISHED,
         }
       });
-      
+
       const draftPosts = await tx.post.count({
         where: {
           status: PostStatus.DRAFT,
@@ -204,18 +351,18 @@ const getPostsStates = async () => {
         }
       })
 
-        const totalRejectComment = await tx.comment.count({
+      const totalRejectComment = await tx.comment.count({
         where: {
           status: CommentStatus.REJECT
         }
       })
 
-      const totalPostViewsAggegate =  await tx.post.aggregate({
-        _sum: {views:true}
+      const totalPostViewsAggegate = await tx.post.aggregate({
+        _sum: { views: true }
       })
 
       const totalPostViews = totalPostViewsAggegate._sum.views;
-      return {totalPost,publistPosts,draftPosts,totalPostViews, archivePosts, comments, totalApprovedComment, totalRejectComment}
+      return { totalPost, publistPosts, draftPosts, totalPostViews, archivePosts, comments, totalApprovedComment, totalRejectComment }
 
     }
   )
